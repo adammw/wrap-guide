@@ -8,7 +8,7 @@ class WrapGuideView extends View
         editorView.underlayer.append(new WrapGuideView(editorView))
 
   @content: ->
-    @div class: 'wrap-guide'
+    @div class: 'wrap-guide-container'
 
   initialize: (@editorView) ->
     @subscribe atom.config.observe 'editor.fontSize', callNow: false, => @updateGuide()
@@ -24,29 +24,44 @@ class WrapGuideView extends View
   getDefaultColumn: ->
     atom.config.getPositiveInt('editor.preferredLineLength', 80)
 
-  getGuideColumn: (path, scopeName) ->
+  getGuideColumns: (path, scopeName) ->
     customColumns = atom.config.get('wrap-guide.columns')
-    return @getDefaultColumn() unless Array.isArray(customColumns)
-    for customColumn in customColumns when typeof customColumn is 'object'
-      {pattern, scope, column} = customColumn
-      if pattern
-        try
-          regex = new RegExp(pattern)
-        catch
-          continue
-        return parseInt(column) if regex.test(path)
-      else if scope
-        return parseInt(column) if scope is scopeName
-    @getDefaultColumn()
+    parseColumns = ->
+      isNumeric = true
+      for customColumn in customColumns
+        if typeof customColumn isnt 'number'
+          isNumeric = false
+        if typeof customColumn is 'object'
+          {pattern, scope, column, columns} = customColumn
+          if pattern
+            try
+              regex = new RegExp(pattern)
+            catch
+              continue
+            if regex.test(path)
+              return if Array.isArray(columns) then columns else column
+          else if scope
+            if scope is scopeName
+              return if Array.isArray(columns) then columns else column
+          else
+            return if Array.isArray(columns) then columns else column
+      if isNumeric
+        return customColumns
+    columns = (parseColumns() if Array.isArray(customColumns)) || [ @getDefaultColumn() ]
+    parseInt(column) for column in columns
 
   updateGuide: ->
     editor = @editorView.getEditor()
-    column = @getGuideColumn(editor.getPath(), editor.getGrammar().scopeName)
-    if column > 0
-      columnWidth = @editorView.charWidth * column
-      if columnWidth < @editorView.layerMinWidth or columnWidth < @editorView.width()
-        @css('left', columnWidth).show()
+    columns = @getGuideColumns(editor.getPath(), editor.getGrammar().scopeName)
+    charWidth = @editorView.charWidth
+    negativeColumns = false
+    html = columns.map (column) ->
+      if column > 0
+        columnWidth = charWidth * column
+        "<div class=\"wrap-guide\" style=\"left: #{columnWidth}px\"></div>"
       else
-        @hide()
+        negativeColumns = true
+    if negativeColumns
+      @empty()
     else
-      @hide()
+      @html(html.join(''))
